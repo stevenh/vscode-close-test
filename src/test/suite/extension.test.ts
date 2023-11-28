@@ -131,6 +131,20 @@ vscode.workspace.onDidCloseTextDocument((e: vscode.TextDocument) => {
 	profiler.resolve(`closeActive:${basePath}`);
 });
 
+// Report when documents are closed and resolve associated promises.
+vscode.window.onDidChangeVisibleTextEditors((editors: readonly vscode.TextEditor[]) => {
+	editors.forEach(editor => {
+		const basePath = basename(editor.document.uri.path);
+		debug(`editor changed "${basePath}" isClosed: ${editor.document.isClosed}`);
+		if (!editor.document.isClosed) {
+			return; // Not closed yet.
+		}
+
+		debug(`closed: "${basePath}"`);
+		profiler.resolve(`closeActiveChange:${basePath}`);
+	});
+});
+
 suite('Extension Test Suite', () => {
 	// Issue: https://github.com/microsoft/vscode/issues/199282.
 	test('Close Tab Groups', async function() {
@@ -166,6 +180,32 @@ suite('Extension Test Suite', () => {
 		const basePath = basename(__filename);
 		// Configure a wait which resolves when the onDidCloseTextDocument is triggered.
 		const closePromise = profiler.wait(`closeActive:${basePath}`, closeTimeout);
+
+		// Open the file.
+		const doc = await vscode.workspace.openTextDocument(__filename);
+		debug(`opened file: "${basePath}"`);
+
+		// Show the document, so we can close it.
+		await vscode.window.showTextDocument(doc);
+		debug(`shown doc: "${basePath}"`);
+
+		// Close the active editor which should trigger the onDidCloseTextDocument event.
+		await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
+		debug(`active editor closed: "${basePath}"`);
+
+		// Wait for the onDidCloseTextDocument event to trigger.
+		await closePromise;
+		debug(`test done: "${basePath}"`);
+	});
+
+	// Issue: https://github.com/microsoft/vscode/issues/199282.
+	test('Close Active Editor Change', async function() {
+		this.timeout(closeTimeout*2); // Ensure the test timeout doesn't trigger before our wait timeout.
+
+		const basePath = basename(__filename);
+		// Configure a wait which resolves when the onDidChangeVisibleTextEditors is triggered with a
+		// document with isClosed: true.
+		const closePromise = profiler.wait(`closeActiveChange:${basePath}`, closeTimeout);
 
 		// Open the file.
 		const doc = await vscode.workspace.openTextDocument(__filename);
